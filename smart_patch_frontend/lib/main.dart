@@ -52,7 +52,7 @@ class WelcomePage extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               const Text(
-                "Detect tomato leaf diseases instantly.",
+                "Detect leaf diseases instantly.",
                 style: TextStyle(fontSize: 16),
                 textAlign: TextAlign.center,
               ),
