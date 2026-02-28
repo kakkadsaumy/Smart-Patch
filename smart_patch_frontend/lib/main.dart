@@ -3,8 +3,18 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://twtzpcnkwhvdlkwmmswi.supabase.co',
+    anonKey:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR3dHpwY25rd2h2ZGxrd21tc3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyNzUxMzAsImV4cCI6MjA4Nzg1MTEzMH0.6RDCTLjqWB8GXvgSqKAv_PsQd78if0oFYD9SbvsDmmk',
+  );
+
   runApp(const SmartPatchApp());
 }
 
@@ -16,13 +26,13 @@ class SmartPatchApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFFE6F2E6), // light cream green
+        scaffoldBackgroundColor: const Color(0xFFE6F2E6),
         primaryColor: Colors.green,
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green, // green buttons
-            foregroundColor: Colors.white, // white text
-            minimumSize: const Size(double.infinity, 50), // full width
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 50),
             textStyle: const TextStyle(fontSize: 18),
           ),
         ),
@@ -31,6 +41,9 @@ class SmartPatchApp extends StatelessWidget {
     );
   }
 }
+
+final supabase = Supabase.instance.client;
+final uuid = const Uuid();
 
 // ------------------------- 1) Welcome Page -------------------------
 class WelcomePage extends StatelessWidget {
@@ -53,7 +66,6 @@ class WelcomePage extends StatelessWidget {
               const SizedBox(height: 20),
               const Text(
                 "Detect leaf diseases instantly.",
-                style: TextStyle(fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 40),
@@ -156,11 +168,21 @@ class _UploadResultPageState extends State<UploadResultPage> {
   @override
   void initState() {
     super.initState();
-    _uploadImage();
+    _processUpload();
   }
 
-  Future<void> _uploadImage() async {
+  Future<void> _processUpload() async {
     try {
+      final imageId = uuid.v4();
+
+      // Upload image to Supabase Storage
+      final imageBytes = await widget.imageFile.readAsBytes();
+
+      await supabase.storage
+          .from('plant-images')
+          .uploadBinary('$imageId.jpg', imageBytes);
+
+      // Send to backend for prediction
       var request = http.MultipartRequest("POST", Uri.parse(endpoint));
       request.files.add(
         await http.MultipartFile.fromPath("image", widget.imageFile.path),
@@ -171,6 +193,16 @@ class _UploadResultPageState extends State<UploadResultPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(responseBody);
+
+        // Save prediction in database
+        await supabase.from('Collected Data').insert({
+          'id': imageId,
+          'image_path': '$imageId.jpg',
+          'prediction': data['prediction'],
+          'confidence': data['confidence'],
+          'advice': data['advice'],
+        });
+
         setState(() {
           _result = data;
           _isLoading = false;
@@ -183,7 +215,7 @@ class _UploadResultPageState extends State<UploadResultPage> {
       }
     } catch (e) {
       setState(() {
-        _error = "Connection failed. Make sure backend is running.";
+        _error = "Something went wrong: $e";
         _isLoading = false;
       });
     }
@@ -199,50 +231,38 @@ class _UploadResultPageState extends State<UploadResultPage> {
             ? const Center(child: CircularProgressIndicator())
             : _error != null
             ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: _uploadImage,
-                      child: const Text("Retry"),
-                    ),
-                  ],
-                ),
+                child: Text(_error!, style: const TextStyle(color: Colors.red)),
               )
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_result != null) ...[
-                    Text(
-                      "Prediction: ${_result!["prediction"]}",
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Text(
+                    "Prediction: ${_result!["prediction"]}",
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      "Confidence: ${(_result!["confidence"] * 100).toStringAsFixed(2)}%",
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      "Advice:",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    ...(_result!["advice"] as List)
-                        .map((tip) => Text("• $tip"))
-                        .toList(),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.popUntil(context, (route) => route.isFirst);
-                      },
-                      child: const Text("Back to Home"),
-                    ),
-                  ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "Confidence: ${(_result!["confidence"] * 100).toStringAsFixed(2)}%",
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "Advice:",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  ...(_result!["advice"] as List)
+                      .map((tip) => Text("• $tip"))
+                      .toList(),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.popUntil(context, (route) => route.isFirst);
+                    },
+                    child: const Text("Back to Home"),
+                  ),
                 ],
               ),
       ),
