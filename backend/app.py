@@ -1,31 +1,43 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
-import random
+import torch
+import numpy as np
+from model_utils import load_model, preprocess_image
 
 app = FastAPI()
 
+model, idx_to_class, device = load_model("model/model.pt")
+
 @app.post("/predict")
 async def predict(image: UploadFile = File(...)):
-    await image.read()
+    contents = await image.read()
 
-    prediction = random.choice(["early_blight", "healthy"])
+    tensor = preprocess_image(contents).to(device)
 
-    if prediction == "early_blight":
-        confidence = round(random.uniform(0.75, 0.95), 3)
-        advice = [
+    with torch.no_grad():
+        outputs = model(tensor)
+        probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
+
+    pred_idx = int(np.argmax(probs))
+    confidence = float(probs[pred_idx])
+    label = idx_to_class[pred_idx]
+
+    advice_map = {
+        "early_blight": [
             "Remove infected leaves immediately",
             "Avoid overhead watering",
             "Apply copper-based fungicide"
-        ]
-    else:
-        confidence = round(random.uniform(0.75, 0.95), 3)
-        advice = [
+        ],
+        "healthy": [
             "Plant appears healthy",
             "Continue proper irrigation and monitoring"
         ]
+    }
+
+    advice = advice_map.get(label.lower(), ["No advice available"])
 
     return JSONResponse({
-        "prediction": prediction,
-        "confidence": confidence,
+        "prediction": label,
+        "confidence": round(confidence, 3),
         "advice": advice
     })

@@ -8,7 +8,7 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 from utils import ImageFolderDataset, train_transform, eval_transform
 
-DATA_DIR = "../dataset"
+DATA_DIR = "../images"
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 TEST_DIR = os.path.join(DATA_DIR, "test")
 

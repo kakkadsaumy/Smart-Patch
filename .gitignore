@@ -1,8 +1,13 @@
 dataset/
+
+backend/venv/
+venv/
+
 *.jpg
 *.png
 *.jpeg
+
 __pycache__/
 *.pyc
+
 .env
-venv/
